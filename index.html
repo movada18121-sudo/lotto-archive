@@ -240,6 +240,7 @@ footer a{color:inherit}
       <h2>งวดที่ผ่านมา</h2>
       <p class="note" id="recentNote">20 งวดล่าสุด</p>
       <div class="scroll"><table id="recent"><tbody></tbody></table></div>
+      <p class="sync"><button type="button" id="moreBtn" hidden></button></p>
     </section>
 
     <section>
@@ -329,6 +330,7 @@ footer a{color:inherit}
 
 <script>
 const API = "https://xn--t3cmiit.com/api/public";
+
 // เวลาออกผลเป็นเวลาไทย · days = วันในสัปดาห์ (0 = อาทิตย์), dates = วันที่ของเดือน
 const LOTTERIES = [
   { slug:"lao-lottery",   name:"ลาวพัฒนา",   when:"จันทร์–ศุกร์ ราว 20:30 น.", stats:true,  days:[1,2,3,4,5],    time:"20:30" },
@@ -471,6 +473,7 @@ const thaiDate = iso => new Date(iso + "T00:00:00").toLocaleDateString("th-TH", 
 const drawLabel = d => (d.displayName || d.drawDate || "").replace(/^งวดวันที่\s*/,"");
 
 /* ---------- กระดาน + ตาราง ---------- */
+let showAll = false; // ตาราง "งวดที่ผ่านมา" แสดงทุกงวดที่เก็บไว้ หรือแค่ 20 งวดล่าสุด
 const drawRow = d => `
   <tr>
     <td>${esc(drawLabel(d))}</td>
@@ -549,7 +552,7 @@ function renderResults(){
     return;
   }
   {
-    const draws = all.slice(0, 20);
+    const draws = showAll ? all : all.slice(0, 20);
     const top = draws[0];
     const main = mainNumber(top);
     const fresh = isToday(top.drawDate);
@@ -566,7 +569,9 @@ function renderResults(){
       </dl>`;
 
     el("recentNote").textContent =
-      `${draws.length} งวดล่าสุด · ${LOTTERIES.find(l=>l.slug===current).when}`;
+      `${showAll ? `ทั้งหมด ${all.length} งวด` : `${draws.length} งวดล่าสุด`} · ${LOTTERIES.find(l=>l.slug===current).when}`;
+    el("moreBtn").hidden = all.length <= 20;
+    el("moreBtn").textContent = showAll ? "แสดงแค่ 20 งวดล่าสุด" : `ดูทั้งหมด ${all.length} งวด`;
     tbody.innerHTML = `
       <tr><th>งวด</th><th>รางวัลหลัก</th><th>3 ตัว</th><th>2 ตัว</th></tr>` +
       draws.map(drawRow).join("");
@@ -753,9 +758,9 @@ const waitText = () => resultError || "กำลังโหลด…";
 function renderDrawExtras(){
   const draws = currentDraws();
   el("rangeNote").textContent = draws.length
-    ? `ปฏิทิน ย้อนดูตามวัน และเลขเชื่อมโยง ใช้ ${draws.length} งวดที่เก็บไว้ในเครื่องนี้ ` +
+    ? `ปฏิทิน ย้อนดูตามวัน และเลขเชื่อมโยง ใช้ทั้ง ${draws.length} งวดที่เก็บไว้ ` +
       `(${thaiDate(draws[draws.length-1].drawDate)} – ${thaiDate(draws[0].drawDate)}) · ` +
-      `API ให้ย้อนหลังได้ครั้งละ 20 งวด งวดใหม่จะสะสมเพิ่มทุกครั้งที่เปิดหน้า ข้อมูลปีก่อนๆ จึงค่อยๆ มีมากขึ้น`
+      `ทุกงวดใหม่ถูกบันทึกลง GitHub อัตโนมัติ ข้อมูลจึงสะสมเพิ่มเรื่อยๆ`
     : "";
   renderCalendar(draws);
   renderMatch(draws);
@@ -1025,12 +1030,14 @@ function loadAll(){
   el("verdict").className = "verdict";
   const seq = ++loadSeq;
   calMonth = null;
+  showAll = false;
   syncError = "";
   el("matchInput").value = "";
   // โหลดสถิติหลังผลงวด: ถ้าไฟล์ข้อมูลมีสถิติมาด้วยจะได้ไม่ต้องเรียก API
   loadResults(seq).then(() => { if(seq === loadSeq) loadStats(seq); });
 }
 el("syncBtn").onclick = () => loadResults(loadSeq, true);
+el("moreBtn").onclick = () => { showAll = !showAll; renderResults(); };
 // เปิดหน้าทิ้งไว้: เช็กทุกนาทีว่าถึงเวลาออกผลหรือยัง ถึงเวลาแล้วจึงเรียก API
 setInterval(() => {
   if(document.hidden) return;
