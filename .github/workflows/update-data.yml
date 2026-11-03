@@ -1,0 +1,52 @@
+name: อัปเดตผลหวย
+
+# เวลา cron เป็น UTC (ไทย = UTC+7) และ GitHub อาจเริ่มช้ากว่าที่ตั้งไว้ 5–30 นาที
+# ตั้งไว้หลังเวลาออกผลแต่ละหวยหลายรอบ สคริปต์จะข้ามหวยที่ยังไม่ถึงเวลาหรือได้งวดใหม่แล้วเอง
+on:
+  schedule:
+    - cron: "50 7 * * *"     # 14:50 น. รัฐบาล (ข้ามเองถ้าไม่ใช่วันออก)
+    - cron: "40 8 * * *"     # 15:40 น. รัฐบาล รอบสำรอง
+    - cron: "50 11 * * *"    # 18:50 น. ฮานอยปกติ
+    - cron: "40 12 * * *"    # 19:40 น. ฮานอยปกติ รอบสำรอง
+    - cron: "50 13 * * 1-5"  # 20:50 น. ลาวพัฒนา
+    - cron: "40 14 * * 1-5"  # 21:40 น. ลาวพัฒนา รอบสำรอง
+    - cron: "30 17 * * *"    # 00:30 น. เก็บตกทุกหวย
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "ดึงทุกหวยทันที ไม่สนเวลาออกผล"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: ดึงผลหวยที่ถึงเวลาออก
+        run: node scripts/update.mjs ${{ inputs.force && '--force' || '' }}
+
+      - name: บันทึกไฟล์ข้อมูลถ้ามีการเปลี่ยนแปลง
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then
+            echo "ไม่มีข้อมูลใหม่"
+          else
+            git commit -m "อัปเดตผลหวย $(TZ=Asia/Bangkok date '+%Y-%m-%d %H:%M')"
+            git push
+          fi
