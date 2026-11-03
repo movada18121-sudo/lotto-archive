@@ -207,7 +207,7 @@ tbody tr:last-child td{border-bottom:none}
 .cal button.m-door,.legend i.m-door{background:color-mix(in srgb,var(--mark) 14%,var(--card))}
 .dayout details{margin-top:.4rem;font-size:.84rem}
 .dayout summary{cursor:pointer;color:var(--muted)}
-.dayout .nums{font-family:"Archivo",sans-serif;font-size:.84rem;word-spacing:.35rem;line-height:1.9;margin:.4rem 0 0}
+.dayout .never-list{max-height:22rem;overflow:auto;margin-top:.4rem}
 
 .kindbar{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;margin:1.4rem 0 0;font-size:.85rem;color:var(--muted)}
 .kindbar button{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:.3rem .8rem;cursor:pointer}
@@ -880,16 +880,26 @@ function dayGroup(title, list){
 }
 
 // เลขที่ยังไม่เคยออกในกลุ่มนั้น ตามประเภทเลขที่เลือก (2 ตัว 00–99, 3 ตัว 000–999)
+// พร้อมบอกว่าเลขนั้นหายไปจากผลทั้งหมดนานแค่ไหน เรียงจากหายนานสุด
 function neverBlock(seen){
   const digits = kindLen();
+  const overall = kindStats(currentDraws());
   const never = [];
   for(let i = 0; i < 10 ** digits; i++){
     const n = String(i).padStart(digits, "0");
-    if(!seen.has(n)) never.push(n);
+    if(!seen.has(n)) never.push({ n, info: overall.get(n) });
   }
   if(!never.length) return `<p class="sum"><span>ยังไม่เคยออก</span><span class="more">ออกครบทุกเลขแล้ว</span></p>`;
-  return `<details><summary>${esc(kindLabel(kind))}ที่ยังไม่เคยออก ${never.length} จาก ${10 ** digits} เลข</summary>
-    <p class="nums">${never.join(" ")}</p></details>`;
+  // ไม่เคยออกเลยในข้อมูลทั้งหมด = หายนานที่สุด ไว้บนสุด
+  never.sort((a, b) => (b.info ? b.info.drawsSince : Infinity) - (a.info ? a.info.drawsSince : Infinity) || a.n.localeCompare(b.n));
+  return `<details><summary>ยังไม่เคยออก ${never.length} จาก ${10 ** digits} เลข · เรียงจากหายนานสุด</summary>
+    <div class="scroll never-list"><table><tbody>
+      <tr><th>เลข</th><th>ไม่ออกมาแล้ว</th><th>ออกล่าสุด</th></tr>
+      ${never.map(({ n, info }) => `<tr><td class="n">${esc(n)}</td>${
+        info ? `<td>${info.drawsSince ? `${info.drawsSince} งวด` : "เพิ่งออกงวดล่าสุด"}</td><td>${esc(thaiDate(info.lastDate))}</td>`
+             : `<td colspan="2" class="more">ไม่เคยออกเลยใน ${currentDraws().length} งวดที่เก็บไว้</td>`
+      }</tr>`).join("")}
+    </tbody></table></div></details>`;
 }
 
 function renderDay(draws){
