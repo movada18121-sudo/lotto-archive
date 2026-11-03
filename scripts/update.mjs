@@ -8,10 +8,11 @@ const API = "https://xn--t3cmiit.com/api/public";
 
 // ต้องตรงกับ LOTTERIES ใน index.html · เวลาเป็นเวลาไทย · days = วันในสัปดาห์ (0 = อาทิตย์), dates = วันที่ของเดือน
 // apiStats = API มี /stats ของหวยนี้ ถ้าไม่มีจะคำนวณสถิติเลขท้าย 2 ตัวเองจากงวดที่เก็บไว้
+// backfill = เติมงวดเก่าที่ ผลหวย.com ให้ไม่ได้ (ย้อนได้แค่ 20 งวด) จากแหล่งทางการ
 const LOTTERIES = [
   { slug: "lao-lottery",     days: [1, 2, 3, 4, 5],          time: "20:30", apiStats: true },
   { slug: "hanoi-normal",    days: [0, 1, 2, 3, 4, 5, 6],    time: "18:30", apiStats: false },
-  { slug: "thai-government", dates: [1, 16],                 time: "14:30", apiStats: true },
+  { slug: "thai-government", dates: [1, 16],                 time: "14:30", apiStats: true, backfill: "glo" },
 ];
 
 const FORCE = process.argv.includes("--force");
@@ -30,13 +31,99 @@ function nextDue(lot, lastIso) {
   return new Date(0);
 }
 
-async function getJson(path) {
+// โดน 429 (เรียกถี่เกินไป): รอ 30 วินาที แล้ว 60 วินาที แล้วลองใหม่ ก่อนยอมให้รอบนี้พลาด
+async function getJson(path, waits = [30, 60]) {
   const res = await fetch(API + path, { headers: { Accept: "application/json" } });
+  if (res.status === 429 && waits.length) {
+    const sec = Math.max(Number(res.headers.get("retry-after")) || 0, waits[0]);
+    console.log(`${path}: โดนจำกัดความถี่ รอ ${sec} วินาทีแล้วลองใหม่`);
+    await sleep(sec * 1000);
+    return getJson(path, waits.slice(1));
+  }
   const json = await res.json().catch(() => null);
   if (!res.ok || !json || json.success === false) {
     throw new Error(`${path} -> ${res.status} ${(json && json.error) || ""}`.trim());
   }
   return json;
+}
+
+/* ---------- เติมงวดเก่าหวยรัฐบาลจาก API ของสำนักงานสลากกินแบ่งรัฐบาล (glo.or.th) ---------- */
+const GLO = "https://www.glo.or.th/api/lottery/getLotteryResult";
+const BACKFILL_PER_RUN = 48;   // งวดต่อรอบ เติมย้อนหลังทีละช่วง ไม่ยิงหนักในครั้งเดียว
+// [คีย์ของ GLO, slug แบบ ผลหวย.com, ชื่อรางวัล] เก็บเฉพาะรางวัลที่หน้าเว็บใช้ ไฟล์จะได้ไม่ใหญ่
+const GLO_PRIZES = [
+  ["first",  "first-prize",       "รางวัลที่ 1"],
+  ["near1",  "near-first-prize",  "รางวัลข้างเคียงรางวัลที่ 1"],
+  ["last3f", "front-three-digit", "เลขหน้า 3 ตัว"],
+  ["last3b", "last-three-digit",  "เลขท้าย 3 ตัว"],
+  ["last2",  "last-two-digit",    "เลขท้าย 2 ตัว"],
+];
+const thaiDisplay = iso => "งวดวันที่ " + new Date(iso + "T00:00:00Z")
+  .toLocaleDateString("th-TH", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+
+// ผลของวันที่ iso หรือ null ถ้าวันนั้นไม่มีการออกรางวัล
+async function gloDraw(iso) {
+  const [year, month, date] = iso.split("-");
+  const res = await fetch(GLO, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ date, month, year }),
+  });
+  if (!res.ok) throw new Error(`GLO ${iso} -> ${res.status}`);
+  const json = await res.json().catch(() => null);
+  const r = json && json.response;
+  const data = r && r.data;
+  if (!data || !data.first || !(data.first.number || []).length) return null;
+  const drawDate = r.date || iso;
+  return {
+    drawDate,
+    displayName: thaiDisplay(drawDate),
+    prizes: GLO_PRIZES.filter(([k]) => data[k] && data[k].number)
+      .map(([k, slug, name]) => ({ slug, name, numbers: data[k].number.map(n => n.value) })),
+  };
+}
+
+// งวดรัฐบาลตามกำหนดคือวันที่ 1 และ 16 แต่บางงวดเลื่อน (เช่น 30 ธ.ค., 17 ม.ค., 2 พ.ค.)
+const isoUTC = t => new Date(t).toISOString().slice(0, 10);
+function nominalPeriod(iso) {
+  const t = Date.parse(iso + "T00:00:00Z");
+  const d = new Date(t);
+  const y = d.getUTCFullYear(), m = d.getUTCMonth();
+  const options = [Date.UTC(y, m, 1), Date.UTC(y, m, 16), Date.UTC(y, m + 1, 1)];
+  return options.reduce((a, b) => Math.abs(b - t) < Math.abs(a - t) ? b : a);
+}
+function previousPeriod(t) {
+  const d = new Date(t);
+  return d.getUTCDate() === 16
+    ? Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)
+    : Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 16);
+}
+
+// ย้อนจากงวดเก่าสุดที่มีไปทีละงวด หาไม่เจอติดกัน 4 งวด = ถึงต้นคลังของ GLO แล้ว
+async function backfillGlo(data) {
+  const have = new Set(data.draws.map(d => d.drawDate));
+  let period = previousPeriod(nominalPeriod(data.draws[data.draws.length - 1].drawDate));
+  let added = 0, misses = 0;
+  for (let i = 0; i < BACKFILL_PER_RUN && misses < 4; i++) {
+    let found = null;
+    for (const offset of [0, 1, -1, -2, 2, -3]) {
+      const iso = isoUTC(period + offset * 24 * HOUR);
+      if (have.has(iso)) { found = "have"; break; }
+      found = await gloDraw(iso);
+      await sleep(1500);
+      if (found) break;
+    }
+    if (found && found !== "have") {
+      data.draws.push(found);
+      have.add(found.drawDate);
+      added++;
+    }
+    misses = found ? 0 : misses + 1;
+    period = previousPeriod(period);
+  }
+  if (misses >= 4) data.backfillDone = true;
+  data.draws.sort((a, b) => b.drawDate.localeCompare(a.drawDate));
+  return added;
 }
 
 const slim = d => ({
@@ -81,11 +168,26 @@ async function update(lot) {
   let data = { slug: lot.slug, updatedAt: null, draws: [], stats: null };
   try { data = JSON.parse(await readFile(file, "utf8")); } catch { /* ยังไม่มีไฟล์ */ }
 
+  const save = async () => {
+    data.updatedAt = new Date().toISOString();
+    await writeFile(file, JSON.stringify(data) + "\n");
+  };
+
   // หวยที่คำนวณสถิติเอง: ถ้ายังไม่มีสถิติ คำนวณจากงวดที่มีได้เลยโดยไม่ต้องเรียก API
   if (!lot.apiStats && !data.stats && data.draws.length) {
     data.stats = computeStats(data.draws);
-    data.updatedAt = new Date().toISOString();
-    await writeFile(file, JSON.stringify(data) + "\n");
+    await save();
+  }
+
+  // เติมงวดเก่าทุกรอบจนครบ ไม่ขึ้นกับเวลาออกผล และไม่ใช้โควตาของ ผลหวย.com
+  if (lot.backfill === "glo" && !data.backfillDone && data.draws.length) {
+    try {
+      const n = await backfillGlo(data);
+      console.log(`${lot.slug}: เติมงวดเก่าจาก GLO ${n} งวด · รวม ${data.draws.length} งวด${data.backfillDone ? " · ครบแล้ว" : ""}`);
+      await save();
+    } catch (err) {
+      console.warn(`${lot.slug}: เติมงวดเก่าไม่สำเร็จ — ${err.message}`);
+    }
   }
 
   const latest = data.draws[0] && data.draws[0].drawDate;
@@ -120,8 +222,7 @@ async function update(lot) {
     data.stats = computeStats(data.draws);
   }
 
-  data.updatedAt = new Date().toISOString();
-  await writeFile(file, JSON.stringify(data) + "\n");
+  await save();
   console.log(`${lot.slug}: งวดใหม่ ${added} งวด · รวม ${data.draws.length} งวด`);
   return true;
 }
@@ -135,7 +236,7 @@ for (const lot of LOTTERIES) {
     failed++;
     console.error(`${lot.slug}: ${err.message}`);
   }
-  await sleep(5000); // เว้นระยะระหว่างหวย กัน API จำกัดความถี่
+  await sleep(15000); // เว้นระยะระหว่างหวย กัน API จำกัดความถี่
 }
 // ล้มเหลวทุกหวย = ให้ workflow ขึ้นสีแดงจะได้เห็น ส่วนพลาดบางหวยรอรอบถัดไปได้
 if (failed === LOTTERIES.length) process.exit(1);
