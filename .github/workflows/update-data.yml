@@ -48,5 +48,7 @@ jobs:
             echo "ไม่มีข้อมูลใหม่"
           else
             git commit -m "อัปเดตผลหวย $(TZ=Asia/Bangkok date '+%Y-%m-%d %H:%M')"
+            # มีการแก้ไฟล์อื่นใน repo ระหว่างรัน: ดึงมาต่อก่อน ไม่งั้น push จะถูกปฏิเสธ
+            git pull --rebase origin main
             git push
           fi
