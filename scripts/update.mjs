@@ -196,7 +196,8 @@ async function update(lot) {
     return false;
   }
 
-  const json = await getJson(`/results?lottery=${lot.slug}&limit=20`);
+  // ลำดับพารามิเตอร์นี้ตั้งใจ: URL แบบ ?lottery=…&limit=20 ของลาวพัฒนาเคยโดน 429 ค้างทั้งที่แบบนี้ยังใช้ได้
+  const json = await getJson(`/results?limit=20&lottery=${lot.slug}`);
   const byDate = new Map(data.draws.map(d => [d.drawDate, d]));
   let added = 0;
   for (const d of json.data || []) {
