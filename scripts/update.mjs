@@ -9,8 +9,9 @@ const API = "https://xn--t3cmiit.com/api/public";
 // ต้องตรงกับ LOTTERIES ใน index.html · เวลาเป็นเวลาไทย · days = วันในสัปดาห์ (0 = อาทิตย์), dates = วันที่ของเดือน
 // apiStats = API มี /stats ของหวยนี้ ถ้าไม่มีจะคำนวณสถิติเลขท้าย 2 ตัวเองจากงวดที่เก็บไว้
 // backfill = เติมงวดเก่าที่ ผลหวย.com ให้ไม่ได้ (ย้อนได้แค่ 20 งวด) จากแหล่งทางการ
+// history = รูปแบบเลขในไฟล์ history/<slug>.txt ที่จดเอง (ดู historyDraw)
 const LOTTERIES = [
-  { slug: "lao-lottery",     days: [1, 2, 3, 4, 5],          time: "20:30", apiStats: true },
+  { slug: "lao-lottery",     days: [1, 2, 3, 4, 5],          time: "20:30", apiStats: true, history: "four" },
   { slug: "hanoi-normal",    days: [0, 1, 2, 3, 4, 5, 6],    time: "18:30", apiStats: false },
   { slug: "thai-government", dates: [1, 16],                 time: "14:30", apiStats: true, backfill: "glo" },
 ];
@@ -126,6 +127,61 @@ async function backfillGlo(data) {
   return added;
 }
 
+/* ---------- งวดย้อนหลังที่จดเอง (history/<slug>.txt) ----------
+   บรรทัดละงวด: "2023-03-03 4268" · ปี พ.ศ. ก็ได้ · บรรทัดที่ขึ้นต้นด้วย # ถูกข้าม */
+const TH_MONTHS = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+  "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+
+// แปลงบรรทัดเป็นงวดในรูปแบบเดียวกับ ผลหวย.com หรือคืนข้อความบอกว่าผิดตรงไหน
+function historyDraw(lot, line) {
+  const m = line.match(/^(\d{4})-(\d{2})-(\d{2})[\s,;]+(\d+)\s*$/);
+  if (!m) return "รูปแบบไม่ถูกต้อง";
+  const year = +m[1] > 2400 ? +m[1] - 543 : +m[1];
+  const iso = `${year}-${m[2]}-${m[3]}`;
+  const d = new Date(iso + "T00:00:00Z");
+  if (isNaN(d) || isoUTC(d.getTime()) !== iso) return "วันที่ไม่มีจริง";
+  if (lot.history === "four") {
+    const n = m[4];
+    if (n.length !== 4) return "ต้องเป็นเลข 4 ตัว";
+    return {
+      drawDate: iso,
+      displayName: `งวดวันที่ ${d.getUTCDate()} ${TH_MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear() + 543}`,
+      prizes: [
+        { slug: "last-four-digit", name: "เลขท้าย 4 ตัว", numbers: [n] },
+        { slug: "last-three-digit", name: "เลขท้าย 3 ตัว", numbers: [n.slice(1)] },
+        { slug: "last-two-digit", name: "เลขท้าย 2 ตัว", numbers: [n.slice(2)] },
+      ],
+    };
+  }
+  return "หวยนี้ยังไม่รองรับไฟล์ history";
+}
+
+// เพิ่มเฉพาะวันที่ยังไม่มี · ถ้าวันเดียวกันเลขไม่ตรงกับข้อมูลเดิมจะเตือน แต่ไม่ทับ
+async function mergeHistory(lot, data) {
+  let text;
+  try { text = await readFile(`history/${lot.slug}.txt`, "utf8"); } catch { return 0; }
+  const byDate = new Map(data.draws.map(d => [d.drawDate, d]));
+  let added = 0;
+  text.split(/\r?\n/).forEach((raw, i) => {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) return;
+    const draw = historyDraw(lot, line);
+    if (typeof draw === "string") {
+      console.warn(`history/${lot.slug}.txt บรรทัด ${i + 1}: ${draw} — "${line}"`);
+      return;
+    }
+    const old = byDate.get(draw.drawDate);
+    if (!old) {
+      byDate.set(draw.drawDate, draw);
+      added++;
+    } else if (old.prizes[0] && old.prizes[0].numbers[0] !== draw.prizes[0].numbers[0]) {
+      console.warn(`history/${lot.slug}.txt บรรทัด ${i + 1}: ${draw.drawDate} เลขไม่ตรงกับข้อมูลเดิม (${old.prizes[0].numbers[0]}) ใช้ของเดิม`);
+    }
+  });
+  data.draws = [...byDate.values()].sort((a, b) => b.drawDate.localeCompare(a.drawDate));
+  return added;
+}
+
 const slim = d => ({
   drawDate: d.drawDate,
   displayName: d.displayName,
@@ -177,6 +233,15 @@ async function update(lot) {
   if (!lot.apiStats && !data.stats && data.draws.length) {
     data.stats = computeStats(data.draws);
     await save();
+  }
+
+  // รวมงวดที่จดเองใน history/ ทุกรอบ (ไม่เรียก API) แก้ไฟล์เมื่อไรก็เข้าในรอบถัดไป
+  if (lot.history) {
+    const n = await mergeHistory(lot, data);
+    if (n) {
+      console.log(`${lot.slug}: เพิ่มจาก history ${n} งวด · รวม ${data.draws.length} งวด`);
+      await save();
+    }
   }
 
   // เติมงวดเก่าทุกรอบจนครบ ไม่ขึ้นกับเวลาออกผล และไม่ใช้โควตาของ ผลหวย.com
