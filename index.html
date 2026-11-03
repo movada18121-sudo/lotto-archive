@@ -474,7 +474,9 @@ function prizeByLength(draw, len){
    ลาว: เลข 4 ตัว 8155 → 3 ตัวบน 155, 2 ตัวบน 55, 2 ตัวล่าง 81 (2 หลักแรก)
    ฮานอย: บน = ท้ายรางวัลพิเศษ, ล่าง = รางวัล 2 ตัวล่าง
    รัฐบาล: บน = ท้ายรางวัลที่ 1, ล่าง = เลขท้าย 2 ตัว */
-const KINDS = [["top3","3 ตัวบน"], ["top2","2 ตัวบน"], ["bottom2","2 ตัวล่าง"]];
+const KINDS = [["top3","3 ตัวบน"], ["top2","2 ตัวบน"], ["bottom2","2 ตัวล่าง"], ["both2","2 ตัวบน+ล่าง"]];
+// both2 = นับ 2 ตัวบนและ 2 ตัวล่างรวมกัน เลขเดียวกันบวกสถิติกัน (งวดที่ออกทั้งบนและล่างนับ 2 ครั้ง)
+const SINGLE_KINDS = KINDS.filter(([k]) => k !== "both2");
 const kindLabel = k => KINDS.find(x => x[0] === k)[1];
 let kind = "top2"; // ประเภทเลขที่ทุกส่วนของหน้าใช้ทำสถิติ
 function numsOf(d){
@@ -487,7 +489,12 @@ function numsOf(d){
   const bottom = (d.prizes || []).find(p => p.slug === "two-digit-bottom" || p.slug === "last-two-digit");
   return { top3: main.slice(-3), top2: main.slice(-2), bottom2: bottom ? String(bottom.numbers[0]) : "" };
 }
-const numOf = d => numsOf(d)[kind];
+// เลขของงวดตามประเภทที่เลือก เป็นอาร์เรย์ (both2 ได้ 2 ตัว, ว่างถ้างวดนั้นไม่มี)
+function twoOf(d){
+  const n = numsOf(d);
+  return (kind === "both2" ? [n.top2, n.bottom2] : [n[kind]]).filter(Boolean);
+}
+const numOf = d => twoOf(d).join(" ");
 
 function isToday(dateStr){
   const d = new Date(dateStr + "T00:00:00");
@@ -587,7 +594,7 @@ function renderResults(){
         ${fresh ? '<span class="fresh">ออกวันนี้</span>' : ""}
       </p>
       <div class="digits">${[...main].map(d => `<span>${esc(d)}</span>`).join("")}</div>
-      <dl class="side">${KINDS.map(([k, label]) =>
+      <dl class="side">${SINGLE_KINDS.map(([k, label]) =>
         `<div><dt>${label}</dt><dd>${esc(numsOf(top)[k] || "—")}</dd></div>`).join("")}
       </dl>`;
 
@@ -604,13 +611,11 @@ function renderResults(){
 // number -> { count, lastDate, drawsSince } · draws เรียงใหม่ไปเก่า
 function kindStats(draws){
   const map = new Map();
-  draws.forEach((d, i) => {
-    const n = numOf(d);
-    if(!n) return;
+  draws.forEach((d, i) => twoOf(d).forEach(n => {
     const e = map.get(n);
     if(e) e.count++;
     else map.set(n, { count:1, lastDate:d.drawDate, drawsSince:i });
-  });
+  }));
   return map;
 }
 
@@ -619,7 +624,8 @@ function renderStats(){
   el("statTitle").textContent = `สถิติ${kindLabel(kind)}`;
   if(!draws.length){ el("statNote").textContent = ""; el("bars").innerHTML = `<li class="state">${esc(waitText())}</li>`; return; }
   el("statNote").textContent =
-    `จาก ${draws.length} งวด (${thaiDate(draws[draws.length-1].drawDate)} ถึง ${thaiDate(draws[0].drawDate)})`;
+    `จาก ${draws.length} งวด (${thaiDate(draws[draws.length-1].drawDate)} ถึง ${thaiDate(draws[0].drawDate)})` +
+    (kind === "both2" ? " · นับ 2 ตัวบนและ 2 ตัวล่างรวมกัน งวดที่ออกเลขเดียวกันทั้งบนและล่างนับ 2 ครั้ง" : "");
   renderBars([...kindStats(draws)].map(([number, v]) => ({ number, ...v })));
 }
 
@@ -650,8 +656,6 @@ document.querySelectorAll(".switch button").forEach(b => {
 
 /* ---------- ประเภทเลข (ปุ่มด้านบน) ---------- */
 const pad2 = n => String(n).padStart(2,"0");
-// เลขของงวดตามประเภทที่เลือก เป็นอาร์เรย์ (ว่างถ้างวดนั้นไม่มี)
-const twoOf = d => { const n = numOf(d); return n ? [n] : []; };
 const chip = (n, note) =>
   `<span class="chip">${esc(n)}${note !== undefined ? `<small>${esc(note)}</small>` : ""}</span>`;
 let extraData = null;
@@ -785,7 +789,7 @@ function renderCalendar(draws){
     const cls = [d ? "draw" : "", hit ? "m-" + hit : "", iso === todayIso ? "today" : "", iso === pick ? "pick" : ""].join(" ").trim();
     const label = d ? `${day} ออก ${mainNumber(d)} ${kindLabel(kind)} ${numOf(d)}` : `${day} ไม่มีงวด`;
     html += `<button type="button" data-iso="${iso}" class="${cls}" aria-label="${esc(label)}">${day}${
-      d ? `<b>${esc(twoOf(d)[0] || "")}</b><small>${esc(mainNumber(d))}</small>` : ""
+      d ? `<b>${esc(numOf(d))}</b><small>${esc(mainNumber(d))}</small>` : ""
     }</button>`;
   }
   box.innerHTML = html;
@@ -802,10 +806,9 @@ function matcher(){
   if(v.length === 1) return d => twoOf(d).some(n => n.includes(v)) ? "door" : "";
   if(v.length !== kindLen()) return () => "";
   return d => {
-    const n = numOf(d);
-    if(!n) return "";
-    if(n === v) return "exact";
-    if(sortDigits(n) === sortDigits(v)) return "rev";   // 2 ตัว = เลขกลับ, 3 ตัว = โต๊ด
+    const nums = twoOf(d);
+    if(nums.includes(v)) return "exact";
+    if(nums.some(n => sortDigits(n) === sortDigits(v))) return "rev";   // 2 ตัว = เลขกลับ, 3 ตัว = โต๊ด
     return "";
   };
 }
@@ -949,16 +952,17 @@ function renderLinks(draws){
   const rows = draws.map((d, i) => {
     const prev = draws[i+1];
     const n = numsOf(d);
-    const sel = n[kind] || "";
+    const sel = twoOf(d);
     const tags = [];
-    if(sel && new Set(sel).size === 1) tags.push(sel.length === 3 ? "เลขตอง" : "เลขเบิ้ล");
+    if(sel.some(x => new Set(x).size === 1)) tags.push(kind === "top3" ? "เลขตอง" : "เลขเบิ้ล");
     if(!prev) return { d, n, same:"—", tags };
-    const p = numOf(prev) || "";
+    const p = twoOf(prev);
     const pd = digitSet(prev);
     const same = [...digitSet(d)].filter(x => pd.has(x)).sort();
     if(same.length) withRepeat++;
-    if(sel && sel === p) tags.push(`${kindLabel(kind)}ซ้ำงวดก่อน`);
-    else if(sel && sortDigits(sel) === sortDigits(p)) tags.push(sel.length === 3 ? "โต๊ดของงวดก่อน" : "เลขกลับของงวดก่อน");
+    if(sel.some(x => p.includes(x))) tags.push(`${kindLabel(kind)}ซ้ำงวดก่อน`);
+    else if(sel.some(x => p.some(y => sortDigits(x) === sortDigits(y))))
+      tags.push(kind === "top3" ? "โต๊ดของงวดก่อน" : "เลขกลับของงวดก่อน");
     return { d, n, same: same.join(" ") || "ไม่มี", tags };
   });
   el("chainNote").textContent =
