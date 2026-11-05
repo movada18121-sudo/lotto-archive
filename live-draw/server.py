@@ -107,6 +107,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, (ROOT / "control.html").read_bytes(), "text/html; charset=utf-8")
         if path == "/overlay":
             return self._send(200, (ROOT / "overlay.html").read_bytes(), "text/html; charset=utf-8")
+        if path.startswith("/assets/"):
+            name = path[len("/assets/"):]
+            f = (ROOT / "assets" / name).resolve()
+            types = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+            if f.parent == (ROOT / "assets").resolve() and f.suffix.lower() in types and f.is_file():
+                return self._send(200, f.read_bytes(), types[f.suffix.lower()])
+            return self._json({"error": "not found"}, 404)
         if path == "/api/state":
             return self._json({**state(), "recent": recent})
         if path == "/events":

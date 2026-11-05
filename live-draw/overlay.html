@@ -42,7 +42,7 @@ body.bg #stage{background:
 /* เวทีสุ่ม */
 .altar{position:absolute;left:0;right:0;top:420px;height:900px;display:flex;flex-direction:column;align-items:center}
 .who{height:110px;font-size:52px;font-weight:800;color:#fff;text-shadow:0 4px 18px rgba(0,0,0,.7);text-align:center;padding:0 40px;
-  opacity:0;transition:opacity .4s}
+  opacity:0;transition:opacity .4s;position:relative;z-index:5}
 .who.show{opacity:1}
 .who small{display:block;font-size:32px;font-weight:600;color:var(--gold-2)}
 
@@ -58,7 +58,7 @@ body.bg #stage{background:
 .stick.s1{left:80px;transform:rotate(-9deg)} .stick.s2{left:115px;height:220px;transform:rotate(-3deg)}
 .stick.s3{left:150px;height:230px} .stick.s4{left:185px;height:215px;transform:rotate(4deg)}
 .stick.s5{left:215px;transform:rotate(10deg)}
-.stick.pop{transition:transform .5s cubic-bezier(.2,1.6,.4,1),bottom .5s;bottom:340px;transform:rotate(0) scale(1.08);
+.stick.pop{transition:transform .5s cubic-bezier(.2,1.6,.4,1),bottom .5s;bottom:300px;transform:rotate(0) scale(1.08);
   box-shadow:0 0 30px var(--gold-2)}
 .siamsi.shake{animation:shake .18s ease-in-out infinite}
 @keyframes shake{0%{transform:rotate(-7deg) translateY(0)}50%{transform:rotate(7deg) translateY(-8px)}100%{transform:rotate(-7deg) translateY(0)}}
@@ -82,6 +82,16 @@ body.bg #stage{background:
 .card.out{animation:cardOut .5s ease forwards}
 @keyframes cardIn{from{opacity:0;transform:translateX(-60px) scale(.9)}to{opacity:1;transform:none}}
 @keyframes cardOut{to{opacity:0;transform:translateY(20px)}}
+
+/* ใช้ภาพจาก assets/ ถ้ามี (ไม่มีก็ใช้แบบ CSS เดิม) */
+body.bg #stage.has-bg{background:#1a0503 var(--bgimg) center/cover no-repeat}
+.siamsi img{position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:340px;height:auto;z-index:1;
+  filter:drop-shadow(0 20px 40px rgba(0,0,0,.55))}
+.siamsi.has-img .tube,.siamsi.has-img .stick:not(#mainStick){display:none}
+.siamsi.has-img #mainStick{left:139px;z-index:0}
+.siamsi.has-img #mainStick.pop{z-index:2}
+.card.framed{background:var(--frame) center/100% 100% no-repeat;border:none;box-shadow:none;
+  padding:34px 90px;justify-content:center;text-align:center;text-shadow:0 2px 6px rgba(0,0,0,.8)}
 
 .offline{position:absolute;right:40px;top:150px;font-size:22px;color:#ffb4a8;background:rgba(0,0,0,.6);
   padding:6px 14px;border-radius:10px;display:none}
@@ -148,7 +158,7 @@ function say(text){
 const ICON = {gift:'🎁', follow:'🙏', share:'📣'};
 function showThanks(t){
   const card = document.createElement('div');
-  card.className = 'card ' + (t.tier || 'normal');
+  card.className = 'card ' + (t.tier || 'normal') + (hasFrame && t.tier !== 'normal' ? ' framed' : '');
   const ic = document.createElement('span'); ic.className = 'ic';
   ic.textContent = t.tier === 'grand' ? '🌟' : (ICON[t.kind] || '🙏');
   const tx = document.createElement('span'); tx.textContent = t.text;   // textContent เสมอ กันชื่อแปลกๆ
@@ -204,6 +214,33 @@ function showState(s){
     const b = $('hint').querySelector('b'); b.textContent = `"${s.keywords[0]}"`;
   }
 }
+
+/* ---------- ภาพประกอบจาก assets/ ---------- */
+let hasFrame = false;
+function findAsset(names){
+  return new Promise(done => {
+    let i = 0;
+    const next = () => {
+      if (i >= names.length) return done(null);
+      const src = '/assets/' + names[i++], im = new Image();
+      im.onload = () => done(src); im.onerror = next; im.src = src;
+    };
+    next();
+  });
+}
+findAsset(['bg.png', 'bg.jpg', 'bg.webp']).then(src => {
+  if (!src) return;
+  $('stage').style.setProperty('--bgimg', `url("${src}")`); $('stage').classList.add('has-bg');
+});
+findAsset(['siamsi_cut.png']).then(src => {
+  if (!src) return;
+  const img = document.createElement('img'); img.src = src; img.alt = '';
+  $('siamsi').append(img); $('siamsi').classList.add('has-img');
+});
+findAsset(['frame_cut.png']).then(src => {
+  if (!src) return;
+  document.documentElement.style.setProperty('--frame', `url("${src}")`); hasFrame = true;
+});
 
 /* ---------- ต่อกับ draw server ---------- */
 function connect(){
