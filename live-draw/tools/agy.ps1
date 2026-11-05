@@ -27,6 +27,9 @@ Remove-Item Env:GEMINI_API_KEY -ErrorAction SilentlyContinue
 
 $work = Join-Path $env:TEMP "agy-work"
 New-Item -ItemType Directory -Force $work | Out-Null
+# ให้ Antigravity รู้บริบทโปรเจกต์ (มันอ่าน AGENTS.md ในโฟลเดอร์งานอัตโนมัติ)
+$brief = Join-Path (Split-Path $PSScriptRoot -Parent) "AGENTS.md"
+if (Test-Path $brief) { Copy-Item $brief (Join-Path $work "AGENTS.md") -Force }
 $brain = Join-Path $HOME ".gemini\antigravity-cli\brain"
 $start = Get-Date
 
