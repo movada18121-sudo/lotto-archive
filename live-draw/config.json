@@ -1,0 +1,15 @@
+{
+  "port": 5181,
+  "tikfinity_url": "ws://127.0.0.1:21213/",
+  "digits": 3,
+  "keywords": ["สาธุ"],
+  "comment_cooldown_seconds": 300,
+  "like_milestone": 500,
+  "timer_round_minutes": 10,
+  "draw_display_seconds": 7,
+  "thanks_display_seconds": 4,
+  "max_draw_queue": 30,
+  "max_thanks_queue": 60,
+  "gift_tiers": { "gold": 100, "grand": 1000 },
+  "disclaimer": "เลขสุ่มด้วยคอมพิวเตอร์ เพื่อความบันเทิงเท่านั้น · ไม่มีรางวัล · ไม่เกี่ยวข้องกับผลสลากใดๆ"
+}
