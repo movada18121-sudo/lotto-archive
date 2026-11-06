@@ -155,6 +155,7 @@ tbody tr:last-child td{border-bottom:none}
 .heat button b{display:block;font-weight:500}
 .heat button span{display:block;font-size:.85em;opacity:.7}
 .heat .hot{color:#fff}
+.heat .top{font-weight:700}
 .heat .h.on{color:var(--mark);font-weight:700}
 .heat button.sel{outline:2px solid var(--ink);outline-offset:-2px}
 .heat button:focus-visible{outline:2px solid var(--mark);outline-offset:1px}
@@ -960,14 +961,17 @@ function renderLinks(draws){
   const latest = digitSet(draws[0]);
   el("flowNote").textContent =
     `แต่ละช่อง = จำนวนครั้งที่หลักในคอลัมน์ออกงวดถัดมา หลังหลักในแถวออก (จาก ${draws.length - 1} ช่วง) · ` +
-    `แถวสีแดงคือหลักของงวดล่าสุด ${[...latest].sort().join(" ")}`;
+    `แถวสีแดงคือหลักของงวดล่าสุด ${[...latest].sort().join(" ")} · ตัวหนาคือ 3 อันดับแรกของแต่ละแถว สีเข้มสุด = อันดับ 1`;
   let fh = `<span class="h"></span>` + [...Array(10)].map((_,u) => `<span class="h">${u}</span>`).join("");
   for(let x = 0; x < 10; x++){
     fh += `<span class="h${latest.has(String(x)) ? " on" : ""}">${x}</span>`;
+    // จัดอันดับในแถว (เลขเท่ากันได้อันดับเดียวกัน) · 3 อันดับแรกตัวหนา สีเข้มตามอันดับ
+    const row = flow[x];
+    const rankOf = v => 1 + row.filter(o => o > v).length;
     for(let y = 0; y < 10; y++){
-      const v = flow[x][y];
-      const p = rowTotal[x] ? Math.round(v / rowTotal[x] * 55) : 0;
-      fh += `<span class="${heatClass(p)}" style="--p:${p}%" title="หลัง ${x} ออก มี ${y} ตามมา ${v} จาก ${rowTotal[x]} ครั้ง">${v}</span>`;
+      const v = row[y], rank = rankOf(v);
+      const p = !rowTotal[x] ? 0 : rank === 1 ? 75 : rank === 2 ? 50 : rank === 3 ? 32 : 8;
+      fh += `<span class="${heatClass(p)}${rank <= 3 && rowTotal[x] ? " top" : ""}" style="--p:${p}%" title="หลัง ${x} ออก มี ${y} ตามมา ${v} จาก ${rowTotal[x]} ครั้ง · อันดับ ${rank} ของแถว">${v}</span>`;
     }
   }
   el("flow").innerHTML = fh;
